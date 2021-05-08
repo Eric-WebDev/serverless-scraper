@@ -3,16 +3,12 @@ import json
 import boto3
 import shortuuid
 from boto3.dynamodb.conditions import Key, Attr
+sqs = boto3.client('sqs')
 dynamodb = boto3.resource('dynamodb')
-BUCKET_NAME = 'articlessource'
-
+queue_url = 'https://sqs.eu-west-1.amazonaws.com/396320213893/ArticlesQueue'
 
 def handler(event, context):
     table = dynamodb.Table('articles')
-    # body = table.scan()
-    # items = body['Items']
-    # urlgenerator = items[-1]['url']
-
     response = table.scan(FilterExpression=Attr('createCollection').eq(1))
     items = response['Items']
     key = items[0]['id']
@@ -21,17 +17,13 @@ def handler(event, context):
     article = Article(itemurl, language="en")  # en for English
     article.download()
     article.parse()
-    s3 = boto3.resource("s3").Bucket('articles-bucket-arek')
-    json.dump_s3 = lambda obj, f: s3.Object(key=f).put(Body=json.dumps(obj))
-    data = {"title": article.title, "url": article.url}
-    json.dump_s3(data, shortuuid.uuid())  # saves json to s3://bucket/key
+
+    message = {"id": key, "title": article.title, "url": article.url,
+               "content": article.text}
+    # Send message to SQS queue
+    response = sqs.send_message(
+        QueueUrl=queue_url,
+        MessageBody=json.dumps(message))
 
     table.update_item(Key={'id': key},  UpdateExpression='SET createCollection = :val1', ExpressionAttributeValues={':val1': 0})
-    return {
-
-        'statusCode': 200,
-        'body': {
-            'article': itemurl
-
-        }
-    }
+    return response
